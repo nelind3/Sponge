@@ -672,10 +672,12 @@ public abstract class SpongeWorldManager implements WorldManager {
         ((MappedRegistryBridge<LevelStem>) registry).bridge$forceRemoveValue(Registries.levelToLevelStem(registryKey));
 
         try {
-            (((MinecraftServerAccessor) this.server).accessor$storageSource()).saveDataTag(
-                SpongeCommon.server().registryAccess(),
-                (PrimaryLevelData) SpongeCommon.server().overworld().getLevelData(),
-                SpongeCommon.server().getPlayerList().getSingleplayerData());
+            if (SpongeCommon.server().overworld() != null) {
+                (((MinecraftServerAccessor) this.server).accessor$storageSource()).saveDataTag(
+                    SpongeCommon.server().registryAccess(),
+                    (PrimaryLevelData) SpongeCommon.server().overworld().getLevelData(),
+                    SpongeCommon.server().getPlayerList().getSingleplayerData());
+            }
         } catch (final Exception ex) {
             return FutureUtil.completedWithException(ex);
         }
