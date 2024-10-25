@@ -354,6 +354,9 @@
         "minecraft.world.item.RarityMixin_API",
         "minecraft.world.item.TiersMixin_API",
         "minecraft.world.item.alchemy.PotionMixin_API",
+        "minecraft.world.item.armortrim.ArmorTrimMixin_API",
+        "minecraft.world.item.armortrim.TrimMaterialMixin_API",
+        "minecraft.world.item.armortrim.TrimPatternMixin_API",
         "minecraft.world.item.component.FireworkExplosionMixin_API",
         "minecraft.world.item.component.Tool_RuleMixin_API",
         "minecraft.world.item.crafting.AbstractCookingRecipeMixin_API",
@@ -548,5 +551,5 @@
     ],
     "overwrites": {
         "conformVisibility": true
-    }
+  }
 }
