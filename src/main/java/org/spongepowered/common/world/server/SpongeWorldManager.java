@@ -668,16 +668,16 @@ public abstract class SpongeWorldManager implements WorldManager {
         //After vanilla has detected a new dimension from a data pack it "promotes" it
         //to the overworld's level data where the level persist even when the data pack is removed.
         //This forcible removes it from there too.
-        Registry<LevelStem> registry = SpongeCommon.vanillaRegistry(Registries.LEVEL_STEM);
-        ((MappedRegistryBridge<LevelStem>) registry).bridge$forceRemoveValue(Registries.levelToLevelStem(registryKey));
+        final Registry<LevelStem> levelStemRegistry = SpongeCommon.vanillaRegistry(Registries.LEVEL_STEM);
+        final net.minecraft.resources.ResourceKey<net.minecraft.world.level.dimension.LevelStem> levelStemKey = Registries.levelToLevelStem(registryKey);
+        if (levelStemRegistry.containsKey(levelStemKey)) {
+            ((MappedRegistryBridge<LevelStem>) levelStemRegistry).bridge$forceRemoveValue(Registries.levelToLevelStem(registryKey));
+        }
 
         try {
-            if (SpongeCommon.server().overworld() != null) {
-                (((MinecraftServerAccessor) this.server).accessor$storageSource()).saveDataTag(
-                    SpongeCommon.server().registryAccess(),
-                    (PrimaryLevelData) SpongeCommon.server().overworld().getLevelData(),
-                    SpongeCommon.server().getPlayerList().getSingleplayerData());
-            }
+            final LevelStorageSource.LevelStorageAccess storageSource = ((MinecraftServerAccessor) this.server).accessor$storageSource();
+            final PrimaryLevelData levelData = (PrimaryLevelData) this.server.getWorldData();
+            storageSource.saveDataTag(SpongeCommon.server().registryAccess(), levelData, null);
         } catch (final Exception ex) {
             return FutureUtil.completedWithException(ex);
         }
