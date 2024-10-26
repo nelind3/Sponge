@@ -123,6 +123,7 @@ import java.util.Objects;
 import java.util.Optional;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.CompletionException;
 import java.util.concurrent.CompletionStage;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.Executor;
@@ -482,87 +483,91 @@ public abstract class SpongeWorldManager implements WorldManager {
         }
 
         final ServerLevel loadedWorld = this.worlds.get(registryKey);
-        boolean disableLevelSaving = false;
+        final boolean disableLevelSaving;
 
         if (loadedWorld != null) {
             disableLevelSaving = loadedWorld.noSave;
             loadedWorld.save(null, true, loadedWorld.noSave);
             loadedWorld.noSave = true;
+        } else {
+            disableLevelSaving = false;
         }
 
         final boolean isDefaultWorld = DefaultWorldKeys.DEFAULT.equals(key);
 
-        final Path originalDirectory = this.getDirectory(key);
-        final Path copyDirectory = this.getDirectory(copyKey);
+        return CompletableFuture.runAsync(() -> {
+            final Path originalDirectory = this.getDirectory(key);
+            final Path copyDirectory = this.getDirectory(copyKey);
 
-        try {
-            Files.walkFileTree(originalDirectory, new SimpleFileVisitor<Path>() {
-                @Override
-                public FileVisitResult preVisitDirectory(final Path dir, final BasicFileAttributes attrs) throws IOException {
-                    // Silly recursion if the default world is being copied
-                    if (dir.getFileName().toString().equals(Constants.Sponge.World.DIMENSIONS_DIRECTORY)) {
-                        return FileVisitResult.SKIP_SUBTREE;
-                    }
+            try {
+                Files.walkFileTree(originalDirectory, new SimpleFileVisitor<Path>() {
+                    @Override
+                    public FileVisitResult preVisitDirectory(final Path dir, final BasicFileAttributes attrs) throws IOException {
+                        // Silly recursion if the default world is being copied
+                        if (dir.getFileName().toString().equals(Constants.Sponge.World.DIMENSIONS_DIRECTORY)) {
+                            return FileVisitResult.SKIP_SUBTREE;
+                        }
 
-                    // Silly copying of vanilla sub worlds if the default world is being copied
-                    if (isDefaultWorld && SpongeWorldManager.this.isVanillaSubWorld(dir.getFileName().toString())) {
-                        return FileVisitResult.SKIP_SUBTREE;
-                    }
+                        // Silly copying of vanilla sub worlds if the default world is being copied
+                        if (isDefaultWorld && SpongeWorldManager.this.isVanillaSubWorld(dir.getFileName().toString())) {
+                            return FileVisitResult.SKIP_SUBTREE;
+                        }
 
-                    final Path relativize = originalDirectory.relativize(dir);
-                    final Path directory = copyDirectory.resolve(relativize);
-                    Files.createDirectories(directory);
+                        final Path relativize = originalDirectory.relativize(dir);
+                        final Path directory = copyDirectory.resolve(relativize);
+                        Files.createDirectories(directory);
 
-                    return FileVisitResult.CONTINUE;
-                }
-
-                @Override
-                public FileVisitResult visitFile(final Path file, final BasicFileAttributes attrs) throws IOException {
-                    final String fileName = file.getFileName().toString();
-                    // Do not copy backups (not relevant anymore)
-                    if (fileName.equals(Constants.Sponge.World.LEVEL_SPONGE_DAT_OLD)) {
                         return FileVisitResult.CONTINUE;
                     }
-                    if (fileName.equals(Constants.World.LEVEL_DAT_OLD)) {
-                        return FileVisitResult.CONTINUE;
-                    }
-                    Files.copy(file, copyDirectory.resolve(originalDirectory.relativize(file)), StandardCopyOption.COPY_ATTRIBUTES,
+
+                    @Override
+                    public FileVisitResult visitFile(final Path file, final BasicFileAttributes attrs) throws IOException {
+                        final String fileName = file.getFileName().toString();
+                        // Do not copy backups (not relevant anymore)
+                        if (fileName.equals(Constants.Sponge.World.LEVEL_SPONGE_DAT_OLD)) {
+                            return FileVisitResult.CONTINUE;
+                        }
+                        if (fileName.equals(Constants.World.LEVEL_DAT_OLD)) {
+                            return FileVisitResult.CONTINUE;
+                        }
+                        Files.copy(file, copyDirectory.resolve(originalDirectory.relativize(file)), StandardCopyOption.COPY_ATTRIBUTES,
                             StandardCopyOption.REPLACE_EXISTING);
 
-                    return FileVisitResult.CONTINUE;
+                        return FileVisitResult.CONTINUE;
+                    }
+                });
+            } catch (final IOException e) {
+                // Bail the whole deal if we hit IO problems!
+                try {
+                    Files.walkFileTree(copyDirectory, DeleteFileVisitor.INSTANCE);
+                } catch (final IOException ignore) {
                 }
-            });
-        } catch (final IOException e) {
-            // Bail the whole deal if we hit IO problems!
-            try {
-                Files.walkFileTree(copyDirectory, DeleteFileVisitor.INSTANCE);
-            } catch (final IOException ignore) {
+
+                throw new CompletionException(e);
             }
 
-            return FutureUtil.completedWithException(e);
-        }
+            if (loadedWorld != null) {
+                loadedWorld.noSave = disableLevelSaving;
+            }
 
-        if (loadedWorld != null) {
-            loadedWorld.noSave = disableLevelSaving;
-        }
+            final Path configFile = this.getConfigFile(key);
+            final Path copyConfigFile = this.getConfigFile(copyKey);
 
-        final Path configFile = this.getConfigFile(key);
-        final Path copyConfigFile = this.getConfigFile(copyKey);
+            try {
+                Files.createDirectories(copyConfigFile.getParent());
+                Files.copy(configFile, copyConfigFile, StandardCopyOption.REPLACE_EXISTING);
+            } catch (final IOException e) {
+                throw new CompletionException(e);
+            }
+        }).thenApplyAsync($ -> {
+            try {
+                this.server().dataPackManager().copy(this.findPack(key), key, copyKey);
+            } catch (final IOException e) {
+                throw new CompletionException(e);
+            }
 
-        try {
-            Files.createDirectories(copyConfigFile.getParent());
-            Files.copy(configFile, copyConfigFile, StandardCopyOption.REPLACE_EXISTING);
-        } catch (final IOException e) {
-            return FutureUtil.completedWithException(e);
-        }
-
-        try {
-            this.server().dataPackManager().copy(this.findPack(key), key, copyKey);
-        } catch (final IOException e) {
-            return FutureUtil.completedWithException(e);
-        }
-
-        return CompletableFuture.completedFuture(true);
+            return true;
+        }, SpongeCommon.server());
     }
 
     @Override
@@ -590,33 +595,35 @@ public abstract class SpongeWorldManager implements WorldManager {
             }
         }
 
-        final Path originalDirectory = this.getDirectory(key);
-        final Path movedDirectory = this.getDirectory(movedKey);
+        return CompletableFuture.runAsync(() -> {
+            final Path originalDirectory = this.getDirectory(key);
+            final Path movedDirectory = this.getDirectory(movedKey);
 
-        try {
-            Files.createDirectories(movedDirectory);
-            Files.move(originalDirectory, movedDirectory, StandardCopyOption.REPLACE_EXISTING);
-        } catch (final IOException e) {
-            return FutureUtil.completedWithException(e);
-        }
+            try {
+                Files.createDirectories(movedDirectory);
+                Files.move(originalDirectory, movedDirectory, StandardCopyOption.REPLACE_EXISTING);
+            } catch (final IOException e) {
+                throw new CompletionException(e);
+            }
 
-        final Path configFile = this.getConfigFile(key);
-        final Path movedConfigFile = this.getConfigFile(movedKey);
+            final Path configFile = this.getConfigFile(key);
+            final Path movedConfigFile = this.getConfigFile(movedKey);
 
-        try {
-            Files.createDirectories(movedConfigFile.getParent());
-            Files.move(configFile, movedConfigFile, StandardCopyOption.REPLACE_EXISTING);
-        } catch (final IOException e) {
-            return FutureUtil.completedWithException(e);
-        }
+            try {
+                Files.createDirectories(movedConfigFile.getParent());
+                Files.move(configFile, movedConfigFile, StandardCopyOption.REPLACE_EXISTING);
+            } catch (final IOException e) {
+                throw new CompletionException(e);
+            }
+        }).thenApplyAsync($ -> {
+            try {
+                this.server().dataPackManager().move(this.findPack(key), key, movedKey);
+            } catch (final IOException e) {
+                throw new CompletionException(e);
+            }
 
-        try {
-            this.server().dataPackManager().move(this.findPack(key), key, movedKey);
-        } catch (final IOException e) {
-            return FutureUtil.completedWithException(e);
-        }
-
-        return CompletableFuture.completedFuture(true);
+            return true;
+        }, SpongeCommon.server());
     }
 
     @Override
@@ -643,46 +650,44 @@ public abstract class SpongeWorldManager implements WorldManager {
             }
         }
 
-        final Path directory = this.getDirectory(key);
-        if (Files.exists(directory)) {
-            try {
-                Files.walkFileTree(directory, DeleteFileVisitor.INSTANCE);
-            } catch (final IOException e) {
-                return FutureUtil.completedWithException(e);
+        return CompletableFuture.runAsync(() -> {
+            final Path directory = this.getDirectory(key);
+            if (Files.exists(directory)) {
+                try {
+                    Files.walkFileTree(directory, DeleteFileVisitor.INSTANCE);
+                } catch (final IOException e) {
+                    throw new CompletionException(e);
+                }
             }
-        }
 
-        final Path configFile = this.getConfigFile(key);
-        try {
-            Files.deleteIfExists(configFile);
-        } catch (final IOException e) {
-            return FutureUtil.completedWithException(e);
-        }
+            final Path configFile = this.getConfigFile(key);
+            try {
+                Files.deleteIfExists(configFile);
+            } catch (final IOException e) {
+                throw new CompletionException(e);
+            }
+        }).thenApplyAsync($ -> {
+            try {
+                this.server().dataPackManager().delete(this.findPack(key), key);
+            } catch (final IOException e) {
+                throw new CompletionException(e);
+            }
 
-        try {
-            this.server().dataPackManager().delete(this.findPack(key), key);
-        } catch (final IOException e) {
-            return FutureUtil.completedWithException(e);
-        }
+            //After vanilla has detected a new dimension from a data pack it "promotes" it
+            //to the overworld's level data where the level persist even when the data pack is removed.
+            //This forcible removes it from there too.
+            final Registry<LevelStem> levelStemRegistry = SpongeCommon.vanillaRegistry(Registries.LEVEL_STEM);
+            final net.minecraft.resources.ResourceKey<net.minecraft.world.level.dimension.LevelStem> levelStemKey = Registries.levelToLevelStem(registryKey);
+            if (levelStemRegistry.containsKey(levelStemKey)) {
+                ((MappedRegistryBridge<LevelStem>) levelStemRegistry).bridge$forceRemoveValue(Registries.levelToLevelStem(registryKey));
+            }
 
-        //After vanilla has detected a new dimension from a data pack it "promotes" it
-        //to the overworld's level data where the level persist even when the data pack is removed.
-        //This forcible removes it from there too.
-        final Registry<LevelStem> levelStemRegistry = SpongeCommon.vanillaRegistry(Registries.LEVEL_STEM);
-        final net.minecraft.resources.ResourceKey<net.minecraft.world.level.dimension.LevelStem> levelStemKey = Registries.levelToLevelStem(registryKey);
-        if (levelStemRegistry.containsKey(levelStemKey)) {
-            ((MappedRegistryBridge<LevelStem>) levelStemRegistry).bridge$forceRemoveValue(Registries.levelToLevelStem(registryKey));
-        }
-
-        try {
             final LevelStorageSource.LevelStorageAccess storageSource = ((MinecraftServerAccessor) this.server).accessor$storageSource();
             final PrimaryLevelData levelData = (PrimaryLevelData) this.server.getWorldData();
             storageSource.saveDataTag(SpongeCommon.server().registryAccess(), levelData, null);
-        } catch (final Exception ex) {
-            return FutureUtil.completedWithException(ex);
-        }
 
-        return CompletableFuture.completedFuture(true);
+            return true;
+        }, SpongeCommon.server());
     }
 
     private DataPack<WorldTemplate> findPack(ResourceKey key) {
