@@ -56,9 +56,12 @@ import net.minecraft.world.level.Level;
 import net.minecraft.world.level.LevelSettings;
 import net.minecraft.world.level.WorldDataConfiguration;
 import net.minecraft.world.level.biome.BiomeManager;
+import net.minecraft.world.level.chunk.ChunkGenerator;
 import net.minecraft.world.level.dimension.BuiltinDimensionTypes;
 import net.minecraft.world.level.dimension.DimensionType;
 import net.minecraft.world.level.dimension.LevelStem;
+import net.minecraft.world.level.levelgen.DebugLevelSource;
+import net.minecraft.world.level.levelgen.FlatLevelSource;
 import net.minecraft.world.level.levelgen.PatrolSpawner;
 import net.minecraft.world.level.levelgen.PhantomSpawner;
 import net.minecraft.world.level.levelgen.WorldOptions;
@@ -803,7 +806,7 @@ public abstract class SpongeWorldManager implements WorldManager {
         }
 
         if (this.server.isDemo()) {
-            return new PrimaryLevelData(MinecraftServer.DEMO_SETTINGS, WorldOptions.DEMO_OPTIONS, PrimaryLevelData.SpecialWorldProperty.NONE, Lifecycle.stable());
+            return new PrimaryLevelData(MinecraftServer.DEMO_SETTINGS, WorldOptions.DEMO_OPTIONS, SpongeWorldManager.specialWorldProperty(levelStem), Lifecycle.stable());
         }
 
         final LevelSettings levelSettings = this.createLevelSettings(defaultLevelData, levelStem, directoryName);
@@ -813,9 +816,9 @@ public abstract class SpongeWorldManager implements WorldManager {
             final WorldOptions generationSettings = ((WorldOptionsBridge) defaultLevelData.worldGenOptions()).bridge$withSeed(customSeed);
             // TODO generateStructures?
             // TODO bonusChest?
-            return new PrimaryLevelData(levelSettings, generationSettings, PrimaryLevelData.SpecialWorldProperty.NONE, Lifecycle.stable());
+            return new PrimaryLevelData(levelSettings, generationSettings, SpongeWorldManager.specialWorldProperty(levelStem), Lifecycle.stable());
         }
-        return new PrimaryLevelData(levelSettings, defaultLevelData.worldGenOptions(), PrimaryLevelData.SpecialWorldProperty.NONE, Lifecycle.stable());
+        return new PrimaryLevelData(levelSettings, defaultLevelData.worldGenOptions(), SpongeWorldManager.specialWorldProperty(levelStem), Lifecycle.stable());
     }
 
     private PrimaryLevelData loadLevelData(final RegistryAccess.Frozen access, final WorldDataConfiguration datapackConfig, final Dynamic<?> dataTag) {
@@ -1101,5 +1104,15 @@ public abstract class SpongeWorldManager implements WorldManager {
     private Path getConfigFile(final ResourceKey key) {
         return SpongeCommon.spongeConfigDirectory().resolve(Launch.instance().id()).resolve("worlds").resolve(key.namespace())
                 .resolve(key.value() + ".conf");
+    }
+
+    private static PrimaryLevelData.SpecialWorldProperty specialWorldProperty(final LevelStem stem) {
+        //Copied from WorldDimensions#specialWorldProperty
+        final ChunkGenerator $$1 = stem.generator();
+        if ($$1 instanceof DebugLevelSource) {
+            return PrimaryLevelData.SpecialWorldProperty.DEBUG;
+        } else {
+            return $$1 instanceof FlatLevelSource ? PrimaryLevelData.SpecialWorldProperty.FLAT : PrimaryLevelData.SpecialWorldProperty.NONE;
+        }
     }
 }
