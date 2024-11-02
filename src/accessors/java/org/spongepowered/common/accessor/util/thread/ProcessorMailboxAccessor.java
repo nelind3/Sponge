@@ -22,15 +22,15 @@
  * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
  * THE SOFTWARE.
  */
-package org.spongepowered.common.bridge.world.level.chunk.storage;
+package org.spongepowered.common.accessor.util.thread;
 
-import net.minecraft.resources.ResourceKey;
-import net.minecraft.world.level.Level;
-import org.spongepowered.common.world.level.chunk.storage.SpongeIOWorkerType;
+import net.minecraft.util.thread.ProcessorMailbox;
+import net.minecraft.util.thread.StrictQueue;
+import org.spongepowered.asm.mixin.Mixin;
+import org.spongepowered.asm.mixin.gen.Accessor;
 
-public interface IOWorkerBridge {
+@Mixin(ProcessorMailbox.class)
+public interface ProcessorMailboxAccessor<T> {
 
-    void bridge$setDimension(SpongeIOWorkerType type, ResourceKey<Level> dimension);
-
-    void bridge$forciblyClear();
+    @Accessor("queue") StrictQueue<? super T, ? extends Runnable> accessor$queue();
 }
