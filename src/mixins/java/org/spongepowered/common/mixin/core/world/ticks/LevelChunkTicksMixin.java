@@ -28,16 +28,18 @@ import net.minecraft.nbt.CompoundTag;
 import net.minecraft.nbt.ListTag;
 import net.minecraft.world.ticks.LevelChunkTicks;
 import net.minecraft.world.ticks.LevelTicks;
+import net.minecraft.world.ticks.SavedTick;
 import net.minecraft.world.ticks.ScheduledTick;
 import org.spongepowered.api.scheduler.ScheduledUpdate;
 import org.spongepowered.asm.mixin.Mixin;
 import org.spongepowered.asm.mixin.injection.At;
 import org.spongepowered.asm.mixin.injection.Inject;
-import org.spongepowered.asm.mixin.injection.ModifyArg;
 import org.spongepowered.asm.mixin.injection.Redirect;
 import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
 import org.spongepowered.common.bridge.world.ticks.LevelChunkTicksBridge;
 import org.spongepowered.common.bridge.world.ticks.TickNextTickDataBridge;
+
+import java.util.function.Function;
 
 @Mixin(LevelChunkTicks.class)
 public abstract class LevelChunkTicksMixin<T> implements LevelChunkTicksBridge<T> {
@@ -56,12 +58,12 @@ public abstract class LevelChunkTicksMixin<T> implements LevelChunkTicksBridge<T
     }
 
     @SuppressWarnings("unchecked")
-    @ModifyArg(method = "save(JLjava/util/function/Function;)Lnet/minecraft/nbt/ListTag;",
+    @Redirect(method = "save(JLjava/util/function/Function;)Lnet/minecraft/nbt/ListTag;",
         at = @At(value = "INVOKE", target = "Lnet/minecraft/world/ticks/SavedTick;saveTick(Lnet/minecraft/world/ticks/ScheduledTick;Ljava/util/function/Function;J)Lnet/minecraft/nbt/CompoundTag;"))
-    private ScheduledTick<T> impl$onSaveSkipCancelled(final ScheduledTick<T> $$0) {
+    private CompoundTag impl$onSaveSkipCancelled(final ScheduledTick<T> $$0, final Function<T, String> $$1, final long $$2) {
         final ScheduledUpdate.State state = ((TickNextTickDataBridge<T>) (Object) $$0).bridge$internalState();
         if (state != ScheduledUpdate.State.CANCELLED) {
-            return $$0;
+            return SavedTick.saveTick($$0, $$1, $$2);
         }
         return null;
     }
